@@ -6,11 +6,9 @@ Chaos engineering for code review pipelines. Finds real bugs, fixes them, then i
 Find 1 bug → Fix it → Inject 2 new subtle bugs → Track everything → Clean revert on demand
 ```
 
-## Use Cases
+## Use Case
 
-- **Train reviewers** — sharpen code review skills by hunting intentionally planted bugs
-- **Stress-test CI/linting** — verify your pipeline catches real-world bug patterns
-- **Gamify code review** — scoreboard tracks who finds the most injected bugs
+Cause CHAOS 😈
 
 ## Quick Start
 
