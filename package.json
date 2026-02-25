@@ -1,0 +1,32 @@
+{
+  "name": "hydra-bugbot",
+  "version": "1.0.0",
+  "description": "Chaos engineering tool for code review pipelines. Finds bugs, fixes them, injects 2 new subtle bugs per fix.",
+  "main": "src/cli.js",
+  "bin": {
+    "hydra-bugbot": "./src/cli.js"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "code-review",
+    "chaos-engineering",
+    "bug-injection",
+    "training"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@babel/core": "^7.26.0",
+    "@babel/generator": "^7.26.0",
+    "@babel/parser": "^7.26.0",
+    "@babel/traverse": "^7.26.0",
+    "@babel/types": "^7.26.0",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "ora": "^8.2.0"
+  }
+}
