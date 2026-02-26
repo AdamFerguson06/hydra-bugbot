@@ -1,5 +1,9 @@
 # Hydra Bugbot
 
+<p align="center">
+  <img src="hydra-bugbot-logo.jpg" alt="Hydra Bugbot" width="400">
+</p>
+
 Chaos engineering for code review pipelines. Finds real bugs, fixes them, then injects 2 new subtle bugs per fix — all tracked in a manifest for clean revert on demand.
 
 ```
