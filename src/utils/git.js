@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
-import { writeFileSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
+import path from 'node:path';
 
 /**
  * Executes a git command synchronously and returns trimmed stdout.
@@ -52,16 +53,64 @@ export function isCleanWorkingTree() {
 }
 
 /**
+ * Ensures .hydra-manifest.json is listed in the target repo's .gitignore.
+ * Appends it if not already present.
+ */
+function ensureManifestIgnored() {
+  const gitignorePath = path.join(process.cwd(), '.gitignore');
+  const entry = '.hydra-manifest.json';
+
+  if (existsSync(gitignorePath)) {
+    const content = readFileSync(gitignorePath, 'utf8');
+    if (content.split('\n').some((line) => line.trim() === entry)) return;
+    writeFileSync(gitignorePath, content.trimEnd() + '\n' + entry + '\n', 'utf8');
+  } else {
+    writeFileSync(gitignorePath, entry + '\n', 'utf8');
+  }
+}
+
+/**
  * Stages all changes and commits with the given message.
+ * Automatically ensures .hydra-manifest.json is gitignored before staging.
  * @param {string} message - Commit message.
  */
 export function commitChanges(message) {
   try {
+    ensureManifestIgnored();
     exec('git add -A');
     exec(`git commit -m ${JSON.stringify(message)}`);
   } catch (e) {
     throw new Error(`git.commitChanges failed: ${e.message}`);
   }
+}
+
+/**
+ * Pushes the current branch to origin and creates a GitHub PR using the gh CLI.
+ * @param {string} branch - Branch name to push.
+ * @param {{ title: string, body: string }} pr - PR title and body.
+ * @returns {{ pushed: boolean, prUrl: string|null }} Result with PR URL if created.
+ */
+export function pushAndCreatePR(branch, pr) {
+  const result = { pushed: false, prUrl: null };
+
+  try {
+    exec(`git push -u origin ${branch}`);
+    result.pushed = true;
+  } catch (e) {
+    throw new Error(`git.pushAndCreatePR push failed: ${e.message}`);
+  }
+
+  try {
+    const url = exec(
+      `gh pr create --title ${JSON.stringify(pr.title)} --body ${JSON.stringify(pr.body)}`
+    );
+    result.prUrl = url.trim();
+  } catch (e) {
+    // gh CLI may not be installed or authenticated — non-fatal
+    result.prUrl = null;
+  }
+
+  return result;
 }
 
 /**

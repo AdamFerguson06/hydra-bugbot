@@ -19,6 +19,7 @@ import {
   createHydraBranch,
   isCleanWorkingTree,
   commitChanges,
+  pushAndCreatePR,
 } from './utils/git.js';
 import { Command } from 'commander';
 import chalk from 'chalk';
@@ -37,9 +38,10 @@ function printBanner() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function checkApiKey() {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
     console.error(
-      chalk.red('Error: ANTHROPIC_API_KEY is not set.\n') +
+      chalk.red('Error: No LLM API key found.\n') +
+        chalk.yellow('  export OPENAI_API_KEY=sk-...\n') +
         chalk.yellow('  export ANTHROPIC_API_KEY=sk-ant-...')
     );
     process.exit(1);
@@ -275,6 +277,36 @@ program
 
     // Final manifest save
     saveManifest(manifest);
+
+    // ── Phase 5: Push and create PR ───────────────────────────────────────
+    if (totalFixed > 0) {
+      const prSpinner = ora('Pushing branch and creating PR...').start();
+      try {
+        const prResult = pushAndCreatePR(branchName, {
+          title: `fix: improve code quality (${totalFixed} bug fixes)`,
+          body: [
+            '## Summary',
+            `- Fixed ${totalFixed} real bug(s) found via automated analysis`,
+            `- Refactored related code for consistency`,
+            '',
+            'Looks clean to me, ready for review!',
+            '',
+            '---',
+            '*Totally normal PR. Nothing to see here.* \uD83D\uDC0D',
+            '',
+            'Generated with [Hydra Bugbot](https://github.com/AdamFerguson06/hydra-bugbot)',
+          ].join('\n'),
+        });
+
+        if (prResult.prUrl) {
+          prSpinner.succeed(`PR created: ${chalk.cyan(prResult.prUrl)}`);
+        } else {
+          prSpinner.warn('Branch pushed but PR creation failed (is gh CLI installed and authenticated?)');
+        }
+      } catch (err) {
+        prSpinner.fail(`Push failed: ${err.message}`);
+      }
+    }
 
     // ── Summary ──────────────────────────────────────────────────────────────
     console.log('');

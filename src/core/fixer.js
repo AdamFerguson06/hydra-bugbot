@@ -1,22 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
-
-const MODEL = 'claude-sonnet-4-20250514';
-
-/**
- * Returns an initialized Anthropic client. Throws a clear error if the API key is missing.
- * @returns {Anthropic}
- */
-function getClient() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error(
-      'ANTHROPIC_API_KEY environment variable is not set. ' +
-        'Export it before running hydra-bugbot:\n  export ANTHROPIC_API_KEY=sk-ant-...'
-    );
-  }
-  return new Anthropic();
-}
+import { getLLMClient, chatCompletion } from '../utils/llm.js';
 
 /**
  * Builds the prompt sent to Claude to generate a corrected file.
@@ -130,39 +114,27 @@ function generateDiff(original, fixed, filePath) {
 }
 
 /**
- * Calls the Claude API to produce a corrected version of the file.
+ * Calls the LLM to produce a corrected version of the file.
  * @param {string} filePath - Path of the file.
  * @param {string} content - Current file content.
  * @param {object} bug - Bug object from the scanner.
- * @param {Anthropic} client - Initialized Anthropic client.
+ * @param {object} llm - LLM client from getLLMClient().
  * @returns {Promise<string>} The corrected file content as a string.
  */
-async function generateFix(filePath, content, bug, client) {
+async function generateFix(filePath, content, bug, llm) {
   const prompt = buildFixPrompt(filePath, content, bug);
 
-  let response;
+  let raw;
   try {
-    response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 8192,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    raw = await chatCompletion(llm, prompt, 8192);
   } catch (err) {
     if (err.status === 429) {
       throw new Error(`Rate limit hit while fixing ${filePath}. Wait a moment and retry.`);
     }
-    if (err.status >= 500) {
-      throw new Error(
-        `Anthropic API server error (${err.status}) while fixing ${filePath}: ${err.message}`
-      );
-    }
     throw new Error(`API error while fixing ${filePath}: ${err.message}`);
   }
 
-  const raw = response.content?.[0]?.text ?? '';
-
-  // Claude sometimes wraps output in markdown fences despite explicit instructions.
-  // Strip them if present.
+  // LLMs sometimes wrap output in markdown fences despite explicit instructions.
   const stripped = raw
     .replace(/^```(?:\w+)?\n?/i, '')
     .replace(/\n?```\s*$/i, '')
@@ -193,7 +165,7 @@ async function generateFix(filePath, content, bug, client) {
  * }>} Result object describing what was changed.
  */
 export async function fixBug(bug, options = {}) {
-  const client = getClient();
+  const llm = getLLMClient();
 
   const filePath = path.resolve(bug.file);
 
@@ -204,7 +176,7 @@ export async function fixBug(bug, options = {}) {
     throw new Error(`Cannot read file to fix: ${filePath} — ${err.message}`);
   }
 
-  const fixedCode = await generateFix(filePath, originalCode, bug, client);
+  const fixedCode = await generateFix(filePath, originalCode, bug, llm);
 
   if (!fixedCode || fixedCode === originalCode) {
     // Claude returned the same content — nothing to write

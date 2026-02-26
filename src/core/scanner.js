@@ -1,24 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
+import { getLLMClient, chatCompletion } from '../utils/llm.js';
 
 const SUPPORTED_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx']);
-
-const MODEL = 'claude-sonnet-4-20250514';
-
-/**
- * Returns an initialized Anthropic client. Throws a clear error if the API key is missing.
- * @returns {Anthropic}
- */
-function getClient() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error(
-      'ANTHROPIC_API_KEY environment variable is not set. ' +
-        'Export it before running hydra-bugbot:\n  export ANTHROPIC_API_KEY=sk-ant-...'
-    );
-  }
-  return new Anthropic();
-}
 
 /**
  * Recursively collects all file paths under a directory, filtering to supported extensions.
@@ -112,34 +96,25 @@ Do not include any text outside the JSON array.`;
 }
 
 /**
- * Sends file content to Claude and parses the returned bug list.
+ * Sends file content to the LLM and parses the returned bug list.
  * @param {string} filePath - Path of the file being scanned.
  * @param {string} content - Source code content.
- * @param {Anthropic} client - Initialized Anthropic client.
+ * @param {object} llm - LLM client from getLLMClient().
  * @param {{ severity?: string, language?: string }} options
  * @returns {Promise<object[]>} Array of bug objects.
  */
-async function scanSingleFile(filePath, content, client, options) {
+async function scanSingleFile(filePath, content, llm, options) {
   const prompt = buildScanPrompt(filePath, content, options);
 
-  let response;
+  let raw;
   try {
-    response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    raw = await chatCompletion(llm, prompt, 4096);
   } catch (err) {
     if (err.status === 429) {
       throw new Error(`Rate limit hit while scanning ${filePath}. Wait a moment and retry.`);
     }
-    if (err.status >= 500) {
-      throw new Error(`Anthropic API server error (${err.status}) while scanning ${filePath}: ${err.message}`);
-    }
     throw new Error(`API error while scanning ${filePath}: ${err.message}`);
   }
-
-  const raw = response.content?.[0]?.text?.trim() ?? '';
 
   // Strip markdown code fences if Claude wrapped the JSON
   const jsonText = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
@@ -184,7 +159,7 @@ async function scanSingleFile(filePath, content, client, options) {
  * }>>} Flat array of all bugs found across all files.
  */
 export async function scanFiles(files, options = {}) {
-  const client = getClient();
+  const llm = getLLMClient();
   const allBugs = [];
 
   for (const filePath of files) {
@@ -200,7 +175,7 @@ export async function scanFiles(files, options = {}) {
       continue;
     }
 
-    const bugs = await scanSingleFile(filePath, content, client, options);
+    const bugs = await scanSingleFile(filePath, content, llm, options);
     allBugs.push(...bugs);
   }
 

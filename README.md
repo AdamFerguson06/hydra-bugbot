@@ -17,13 +17,15 @@ Cause CHAOS 😈
 ## Quick Start
 
 ```bash
-# Set your API key
+# Set your API key (either works)
+export OPENAI_API_KEY=sk-...
+# or
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # Scan a project for real bugs (read-only)
 npx hydra-bugbot scan --scope src/
 
-# Find bugs, fix them, and inject 2x subtle bugs
+# Find bugs, fix them, inject 2x subtle bugs, and open a PR
 npx hydra-bugbot infest
 
 # See what's been injected
@@ -44,7 +46,7 @@ npx hydra-bugbot purge
 | Command | Description |
 |---------|-------------|
 | `scan` | Find bugs in the codebase, report only (no changes) |
-| `infest` | Fix real bugs + inject 2 new bugs per fix |
+| `infest` | Fix real bugs + inject 2 new bugs per fix + open a PR |
 | `status` | Show current session: fixes applied, bugs injected |
 | `reveal` | Spoiler mode: show all injected bug locations |
 | `found <id>` | Mark an injected bug as discovered |
@@ -63,12 +65,13 @@ npx hydra-bugbot purge
 
 ## How It Works
 
-1. **Scan** — Claude API analyzes your codebase for real bugs
+1. **Scan** — LLM analyzes your codebase for real bugs (supports OpenAI and Anthropic)
 2. **Fix** — Each real bug gets a proper fix, committed to a dedicated `hydra/session-*` branch
-3. **Inject** — For each fix, 2 subtle bugs are injected into *different* files via Babel AST transforms
-4. **Track** — Everything is recorded in `.hydra-manifest.json` (gitignored)
-5. **Score** — Reviewers hunt for injected bugs; finds are scored by difficulty (1-5 stars)
-6. **Purge** — Clean revert of all injections; real fixes remain intact
+3. **Inject** — For each fix, 2 subtle bugs are injected via Babel AST transforms (works with single or multi-file projects)
+4. **PR** — Automatically pushes the branch and opens a GitHub PR with an innocent-looking description
+5. **Track** — Everything is recorded in `.hydra-manifest.json` (auto-gitignored)
+6. **Score** — Reviewers hunt for injected bugs; finds are scored by difficulty (1-5 stars)
+7. **Purge** — Clean revert of all injections; real fixes remain intact
 
 ## Bug Templates
 
@@ -86,12 +89,12 @@ npx hydra-bugbot purge
 
 ## Git Workflow
 
-Hydra never touches your main branch. It creates a dedicated session branch:
+Hydra never touches your main branch. It creates a dedicated session branch and opens a PR:
 
 ```
 main ─────────────────────────────────────
   │
-  └── hydra/session-a1b2c3d4
+  └── hydra/session-a1b2c3d4  →  PR #42: "fix: improve code quality"
         commit 1: "fix: orphaned setTimeout in App.jsx"        (real fix)
         commit 2: "refactor: cleanup Modal effect deps"        (contains hydra-001)
         commit 3: "fix: improve error handling in utils"       (contains hydra-002)
@@ -101,13 +104,15 @@ main ─────────────────────────
 
 - **Node.js** CLI with [Commander](https://github.com/tj/commander.js)
 - **Babel** for AST-based code manipulation (precise, syntax-safe)
-- **Claude API** via [@anthropic-ai/sdk](https://github.com/anthropics/anthropic-sdk-node) for bug discovery and fix generation
+- **Multi-provider LLM** — supports OpenAI (`gpt-4o-mini`) and Anthropic (`claude-sonnet`) for bug discovery and fix generation
+- **GitHub CLI** (`gh`) for automatic PR creation
 - **chalk** + **ora** for terminal UI
 
 ## Requirements
 
 - Node.js 18+
-- `ANTHROPIC_API_KEY` environment variable
+- `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` environment variable
+- `gh` CLI (optional, for auto PR creation)
 
 ## License
 

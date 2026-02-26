@@ -578,7 +578,14 @@ export async function injectBugs(fix, options = {}) {
   if (!templates || templates.length === 0) return [];
 
   // Collect candidate files (excludes the fixed file)
-  const candidateFiles = collectCandidateFiles(scopeAbs, fixedFileAbs ?? '');
+  let candidateFiles = collectCandidateFiles(scopeAbs, fixedFileAbs ?? '');
+
+  // Fallback: if no other files exist, inject into the fixed file itself
+  // (targeting different locations within the same file)
+  if (candidateFiles.length === 0 && fixedFileAbs && fs.existsSync(fixedFileAbs)) {
+    candidateFiles = [fixedFileAbs];
+  }
+
   if (candidateFiles.length === 0) return [];
 
   // Score and rank all injection points across all candidate files
