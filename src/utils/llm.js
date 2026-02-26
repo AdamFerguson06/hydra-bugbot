@@ -3,11 +3,12 @@ import OpenAI from 'openai';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
 const OPENAI_MODEL = 'gpt-4o-mini';
+const XAI_MODEL = 'grok-3-mini';
 
 /**
  * Detects which LLM provider to use based on environment variables.
- * Checks OPENAI_API_KEY first, then ANTHROPIC_API_KEY.
- * @returns {{ provider: 'openai'|'anthropic', client: object, model: string }}
+ * Checks OPENAI_API_KEY first, then XAI_API_KEY, then ANTHROPIC_API_KEY.
+ * @returns {{ provider: 'openai'|'anthropic'|'xai', client: object, model: string }}
  */
 export function getLLMClient() {
   if (process.env.OPENAI_API_KEY) {
@@ -15,6 +16,14 @@ export function getLLMClient() {
       provider: 'openai',
       client: new OpenAI(),
       model: OPENAI_MODEL,
+    };
+  }
+
+  if (process.env.XAI_API_KEY) {
+    return {
+      provider: 'xai',
+      client: new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' }),
+      model: XAI_MODEL,
     };
   }
 
@@ -29,6 +38,7 @@ export function getLLMClient() {
   throw new Error(
     'No LLM API key found. Set one of:\n' +
     '  export OPENAI_API_KEY=sk-...\n' +
+    '  export XAI_API_KEY=xai-...\n' +
     '  export ANTHROPIC_API_KEY=sk-ant-...'
   );
 }
@@ -41,7 +51,7 @@ export function getLLMClient() {
  * @returns {Promise<string>} The text response from the model
  */
 export async function chatCompletion(llm, prompt, maxTokens = 4096) {
-  if (llm.provider === 'openai') {
+  if (llm.provider === 'openai' || llm.provider === 'xai') {
     const response = await llm.client.chat.completions.create({
       model: llm.model,
       max_tokens: maxTokens,
@@ -67,5 +77,5 @@ export async function chatCompletion(llm, prompt, maxTokens = 4096) {
  * @returns {boolean}
  */
 export function hasApiKey() {
-  return !!(process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY);
+  return !!(process.env.OPENAI_API_KEY || process.env.XAI_API_KEY || process.env.ANTHROPIC_API_KEY);
 }

@@ -10,7 +10,11 @@ import { getLLMClient, chatCompletion } from '../utils/llm.js';
  * @returns {string}
  */
 function buildFixPrompt(filePath, content, bug) {
-  return `You are a senior software engineer fixing a real bug in production code.
+  const ext = path.extname(filePath);
+  const langHints = { '.py': 'Python', '.pyw': 'Python', '.go': 'Go' };
+  const languageHint = langHints[ext] || 'JavaScript/TypeScript';
+
+  return `You are a senior software engineer fixing a real bug in production ${languageHint} code.
 
 File: ${filePath}
 Bug on line ${bug.line}: ${bug.description}

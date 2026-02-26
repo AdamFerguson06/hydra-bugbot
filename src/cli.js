@@ -134,6 +134,7 @@ program
     'Minimum severity to scan for (low | medium | high | critical)'
   )
   .option('--dry-run', 'Preview what would happen without making any changes')
+  .option('--language <lang>', 'Target language (javascript, python, go). Auto-detects if omitted.')
   .action(async (opts) => {
     printBanner();
     checkApiKey();
@@ -167,7 +168,7 @@ program
     const scanSpinner = ora('Scanning for real bugs...').start();
     let bugs = [];
     try {
-      bugs = await scanDirectory(opts.scope, { severity: opts.severity });
+      bugs = await scanDirectory(opts.scope, { severity: opts.severity, language: opts.language });
       scanSpinner.succeed(`Found ${bugs.length} bug(s).`);
     } catch (err) {
       scanSpinner.fail('Scan failed.');
@@ -244,6 +245,7 @@ program
         injections = await injectBugs(fixResult, {
           ratio,
           scope: opts.scope,
+          language: opts.language,
         });
         injectSpinner.succeed(`Injected ${injections.length} new bug(s).`);
       } catch (err) {

@@ -5,93 +5,33 @@
  * and applies subtle bug templates to them, maintaining the hydra's regrowth loop.
  *
  * Exported API:
- *   injectBugs(fix, options)          — top-level orchestration
- *   selectInjectionPoints(files, fix, options) — scoring and ranking
- *   applyInjection(file, template, injectionPoint) — single-file mutation
+ *   injectBugs(fix, options)                                  — top-level orchestration
+ *   selectInjectionPoints(files, fix, options, templates, adapter) — scoring and ranking
+ *   applyInjection(file, template, injectionPoint, parsed, originalCode, adapter) — single-file mutation
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse } from '@babel/parser';
-import _traverse from '@babel/traverse';
-const traverse = _traverse.default || _traverse;
-import _generate from '@babel/generator';
-const generate = _generate.default || _generate;
-import * as t from '@babel/types';
-
-// ---------------------------------------------------------------------------
-// Babel parse options — shared across all parse calls
-// ---------------------------------------------------------------------------
-const PARSE_OPTIONS = {
-  sourceType: 'module',
-  plugins: [
-    'jsx',
-    'typescript',
-    'classProperties',
-    'optionalChaining',
-    'nullishCoalescingOperator',
-  ],
-};
-
-// ---------------------------------------------------------------------------
-// Template loader — dynamically imports all JS files in the bug-templates dir
-// so we never need to maintain a separate index file.
-// ---------------------------------------------------------------------------
-
-/**
- * Resolves the absolute path to the bug-templates directory relative to this file.
- * @returns {string}
- */
-function bugTemplatesDir() {
-  // __dirname equivalent for ESM
-  const here = path.dirname(new URL(import.meta.url).pathname);
-  return path.resolve(here, '../bug-templates');
-}
-
-/**
- * Lazily loaded template array — populated on first call to getTemplates().
- * @type {object[]|null}
- */
-let _templates = null;
-
-/**
- * Loads and returns all bug templates from the bug-templates directory.
- * Results are cached after the first load.
- * @returns {Promise<object[]>}
- */
-async function getTemplates() {
-  if (_templates !== null) return _templates;
-
-  const dir = bugTemplatesDir();
-  const entries = fs.readdirSync(dir).filter((f) => f.endsWith('.js'));
-
-  const loaded = await Promise.all(
-    entries.map(async (entry) => {
-      const fullPath = path.join(dir, entry);
-      // Dynamic import with file:// URL for Windows compatibility
-      const mod = await import(`file://${fullPath}`);
-      return mod.default ?? mod;
-    })
-  );
-
-  _templates = loaded.filter(Boolean);
-  return _templates;
-}
+import { detectLanguage, getAdapter, getAllSupportedExtensions, getExtensionsForLanguage } from '../languages/index.js';
 
 // ---------------------------------------------------------------------------
 // File discovery
 // ---------------------------------------------------------------------------
 
 /**
- * Recursively collects all JS/TS/JSX/TSX files under `scopeDir`, excluding
- * `node_modules` and the file that was just fixed.
+ * Recursively collects all source files under `scopeDir` for the given adapter,
+ * excluding the fixed file and directories the adapter marks as skippable.
  *
  * @param {string} scopeDir  - Absolute directory to search in.
  * @param {string} fixedFile - Absolute path to exclude (the file that was fixed).
+ * @param {object|null} adapter - Language adapter (supplies extensions and skipDirs).
  * @returns {string[]} Sorted list of absolute file paths.
  */
-function collectCandidateFiles(scopeDir, fixedFile) {
-  const JS_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']);
+function collectCandidateFiles(scopeDir, fixedFile, adapter) {
+  const extensions = adapter ? adapter.extensions : getAllSupportedExtensions();
+  const skipDirNames = adapter
+    ? new Set([...adapter.skipDirs, '.git'])
+    : new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__', '.venv', 'venv', 'vendor']);
   const results = [];
 
   function walk(dir) {
@@ -99,17 +39,17 @@ function collectCandidateFiles(scopeDir, fixedFile) {
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-      return; // unreadable directory — skip silently
+      return;
     }
 
     for (const entry of entries) {
-      if (entry.name === 'node_modules') continue;
-      if (entry.name.startsWith('.')) continue;
+      if (skipDirNames.has(entry.name)) continue;
+      if (entry.name.startsWith('.') && entry.name !== '.git') continue;
 
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
-      } else if (entry.isFile() && JS_EXTENSIONS.has(path.extname(entry.name))) {
+      } else if (entry.isFile() && extensions.has(path.extname(entry.name))) {
         const resolved = path.resolve(full);
         if (resolved !== path.resolve(fixedFile)) {
           results.push(resolved);
@@ -125,35 +65,6 @@ function collectCandidateFiles(scopeDir, fixedFile) {
 // ---------------------------------------------------------------------------
 // Relatedness scoring helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Extracts bare import specifiers from an AST to help score file relatedness.
- * @param {object} ast - Babel AST.
- * @returns {string[]}
- */
-function extractImports(ast) {
-  const imports = [];
-  try {
-    traverse(ast, {
-      ImportDeclaration(nodePath) {
-        imports.push(nodePath.node.source.value);
-      },
-      CallExpression(nodePath) {
-        // require('...')
-        if (
-          t.isIdentifier(nodePath.node.callee, { name: 'require' }) &&
-          nodePath.node.arguments.length > 0 &&
-          t.isStringLiteral(nodePath.node.arguments[0])
-        ) {
-          imports.push(nodePath.node.arguments[0].value);
-        }
-      },
-    });
-  } catch {
-    // Traverse errors on partial ASTs are non-fatal
-  }
-  return imports;
-}
 
 /**
  * Returns a 0–1 score representing how related `candidateFile` is to `fixedFile`
@@ -200,19 +111,36 @@ function relatednessScore(candidateFile, fixedFile, candidateImports, fixedImpor
  *
  * @param {object} template  - Bug template object.
  * @param {object} fix       - Fix result object.
+ * @param {string} language  - Detected language name.
  * @returns {number}
  */
-function categoryFitScore(template, fix) {
+function categoryFitScore(template, fix, language) {
   const context = `${fix.file ?? ''} ${fix.description ?? ''}`.toLowerCase();
   switch (template.category) {
     case 'react':
-      return /react|hook|component|jsx|tsx|render|state/.test(context) ? 0.8 : 0.2;
+      return language === 'javascript' && /react|hook|component|jsx|tsx|render|state/.test(context) ? 0.8 : 0.1;
     case 'async':
-      return /async|await|promise|fetch|api|request|callback/.test(context) ? 0.8 : 0.3;
+      return /async|await|promise|fetch|api|request|callback|asyncio|goroutine/.test(context) ? 0.8 : 0.3;
     case 'logic':
-      return 0.5; // logic bugs are universally applicable
+      return 0.5;
     case 'null-safety':
-      return /null|undefined|optional|safe/.test(context) ? 0.8 : 0.4;
+      return /null|undefined|optional|safe|none|nil/.test(context) ? 0.8 : 0.4;
+    case 'error-handling':
+      return /error|err|exception|panic|recover/.test(context) ? 0.8 : 0.3;
+    case 'concurrency':
+      return /goroutine|channel|mutex|lock|concurrent|parallel/.test(context) ? 0.8 : 0.2;
+    case 'resource':
+      return /file|open|close|connection|socket|defer|with\s/.test(context) ? 0.8 : 0.3;
+    case 'indentation':
+      return language === 'python' ? 0.6 : 0.0;
+    case 'correctness':
+      return 0.5; // broadly applicable like logic
+    case 'security':
+      return /auth|login|session|csrf|cors|token|validate|sanitize|path/.test(context) ? 0.9 : 0.2;
+    case 'database':
+      return /database|db|sql|query|pool|connection|client|pg|mysql|mongo/.test(context) ? 0.9 : 0.2;
+    case 'event-loop':
+      return /stream|pipe|socket|event|emitter/.test(context) ? 0.8 : 0.2;
     default:
       return 0.3;
   }
@@ -221,9 +149,6 @@ function categoryFitScore(template, fix) {
 /**
  * Returns a 0–1 score reflecting how close the template's implicit severity is
  * to the requested severity level (1–5 scale).
- *
- * Templates don't carry an explicit severity, so we derive a rough value from
- * the category: async > react > null-safety > logic.
  *
  * @param {object} template         - Bug template object.
  * @param {number} requestedSeverity - 1–5 integer.
@@ -235,6 +160,14 @@ function severityMatchScore(template, requestedSeverity) {
     react: 3,
     'null-safety': 3,
     logic: 2,
+    'error-handling': 3,
+    concurrency: 4,
+    resource: 3,
+    indentation: 2,
+    correctness: 3,
+    security: 5,
+    database: 4,
+    'event-loop': 3,
   };
   const templateSeverity = CATEGORY_SEVERITY[template.category] ?? 3;
   const distance = Math.abs(templateSeverity - requestedSeverity);
@@ -261,7 +194,6 @@ function generateDiff(original, modified, filePath, contextLines = 3) {
 
   // Build a simple line-by-line comparison.
   // For files that differ significantly this produces a serviceable hunk-based diff.
-  const maxLen = Math.max(origLines.length, modLines.length);
   const changes = []; // { type: 'eq'|'del'|'add', origIdx, modIdx, text }
 
   let oi = 0;
@@ -366,32 +298,34 @@ function generateDiff(original, modified, filePath, contextLines = 3) {
  *   2. Template category fit for the fix context.
  *   3. Severity proximity to the requested severity level.
  *
- * @param {string[]} files   - Absolute paths of candidate files to analyze.
- * @param {object}  fix      - Fix result object with at least `{ file, description }`.
- * @param {object}  options  - Options `{ severity?: number }`.
+ * @param {string[]} files     - Absolute paths of candidate files to analyze.
+ * @param {object}  fix        - Fix result object with at least `{ file, description }`.
+ * @param {object}  options    - Options `{ severity?: number }`.
  * @param {object[]} templates - Loaded bug template objects.
+ * @param {object}  adapter    - Language adapter for parsing.
  * @returns {Array<{
  *   file: string,
  *   template: object,
  *   injectionPoint: object,
  *   score: number,
- *   ast: object,
+ *   parsed: object,
  *   originalCode: string
  * }>} Scored injection candidates, sorted descending by score.
  */
-export function selectInjectionPoints(files, fix, options, templates) {
+export function selectInjectionPoints(files, fix, options, templates, adapter) {
   const { severity = 3 } = options ?? {};
   const candidates = [];
+  const language = adapter?.name ?? 'javascript';
 
-  // Parse the fixed file so we can extract its imports for relatedness scoring.
+  // Parse the fixed file for relatedness scoring
   let fixedImports = [];
   if (fix.file) {
     try {
       const fixedSrc = fs.readFileSync(fix.file, 'utf8');
-      const fixedAst = parse(fixedSrc, PARSE_OPTIONS);
-      fixedImports = extractImports(fixedAst);
+      const fixedParsed = adapter.parseFile(fixedSrc, fix.file);
+      fixedImports = adapter.extractImports(fixedParsed);
     } catch {
-      // Non-fatal — relatedness will still use directory proximity
+      // Non-fatal
     }
   }
 
@@ -399,31 +333,31 @@ export function selectInjectionPoints(files, fix, options, templates) {
     let src;
     try {
       src = fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      continue; // unreadable file — skip
-    }
-
-    let ast;
-    try {
-      ast = parse(src, PARSE_OPTIONS);
     } catch {
-      continue; // unparseable file — skip
+      continue;
     }
 
-    const candidateImports = extractImports(ast);
+    let parsed;
+    try {
+      parsed = adapter.parseFile(src, filePath);
+    } catch {
+      continue;
+    }
+
+    const candidateImports = adapter.extractImports(parsed);
     const relScore = relatednessScore(filePath, fix.file ?? '', candidateImports, fixedImports);
 
     for (const template of templates) {
       let points;
       try {
-        points = template.findInjectionPoints(ast, filePath);
+        points = template.findInjectionPoints(parsed, filePath);
       } catch {
-        continue; // template threw — skip this template/file combo
+        continue;
       }
 
       if (!points || points.length === 0) continue;
 
-      const catScore = categoryFitScore(template, fix);
+      const catScore = categoryFitScore(template, fix, language);
       const sevScore = severityMatchScore(template, severity);
 
       for (const injectionPoint of points) {
@@ -433,30 +367,27 @@ export function selectInjectionPoints(files, fix, options, templates) {
           template,
           injectionPoint,
           score,
-          ast,            // retain parsed AST to avoid re-parsing during apply
+          parsed,
           originalCode: src,
         });
       }
     }
   }
 
-  // Sort descending by composite score
   candidates.sort((a, b) => b.score - a.score);
   return candidates;
 }
 
 /**
- * Reads `file`, applies `template.inject()` to the AST at `injectionPoint`,
- * regenerates the source, writes it back, and returns the injection result.
- *
- * The caller is responsible for passing the correct `ast` and `originalCode`
- * (obtained via `selectInjectionPoints`) to avoid double-reading the file.
+ * Applies `template.inject()` to the parsed representation at `injectionPoint`,
+ * regenerates the source via the adapter, writes it back, and returns the result.
  *
  * @param {string} file           - Absolute path to the target file.
  * @param {object} template       - Bug template to apply.
  * @param {object} injectionPoint - Injection point object from `findInjectionPoints`.
- * @param {object} ast            - Pre-parsed Babel AST for the file.
+ * @param {object} parsed         - Pre-parsed AST/tree for the file.
  * @param {string} originalCode   - Full original source content of the file.
+ * @param {object} adapter        - Language adapter for code generation.
  * @returns {{
  *   file: string,
  *   line: number,
@@ -468,40 +399,45 @@ export function selectInjectionPoints(files, fix, options, templates) {
  *   diff: string
  * }|null} Result object, or null if the injection fails.
  */
-export function applyInjection(file, template, injectionPoint, ast, originalCode) {
-  let mutatedAst;
+export function applyInjection(file, template, injectionPoint, parsed, originalCode, adapter) {
+  let mutatedParsed;
   try {
-    mutatedAst = template.inject(ast, injectionPoint);
-  } catch (err) {
-    return null; // injection threw — treat as failure
+    mutatedParsed = template.inject(parsed, injectionPoint);
+  } catch {
+    return null;
   }
 
   let injectedCode;
   try {
-    const result = generate(mutatedAst, { retainLines: false, concise: false }, originalCode);
-    injectedCode = result.code;
+    injectedCode = adapter.generateCode(mutatedParsed, originalCode);
   } catch {
-    return null; // codegen failure — skip
+    return null;
   }
 
-  // Sanity: if generated code is identical to original, the injection was a no-op
   if (injectedCode === originalCode) return null;
 
   try {
     fs.writeFileSync(file, injectedCode, 'utf8');
   } catch {
-    return null; // write failure
+    return null;
   }
 
   const line = injectionPoint.loc?.start?.line ?? 0;
   const relativeFile = path.relative(process.cwd(), file);
 
-  // Derive severity from the template category (same mapping used in scoring)
   const CATEGORY_SEVERITY = {
     async: 4,
     react: 3,
     'null-safety': 3,
     logic: 2,
+    'error-handling': 3,
+    concurrency: 4,
+    resource: 3,
+    indentation: 2,
+    correctness: 3,
+    security: 5,
+    database: 4,
+    'event-loop': 3,
   };
   const severity = CATEGORY_SEVERITY[template.category] ?? 3;
 
@@ -543,6 +479,7 @@ export function applyInjection(file, template, injectionPoint, ast, originalCode
  * @param {number} [options.severity=3]   - Target severity level (1–5).
  * @param {string} [options.scope='src/'] - Directory to search for injection targets
  *                                          (resolved relative to process.cwd()).
+ * @param {string} [options.language]     - Force a specific language ('javascript', 'python', 'go').
  * @returns {Promise<Array<{
  *   file: string,
  *   line: number,
@@ -556,53 +493,48 @@ export function applyInjection(file, template, injectionPoint, ast, originalCode
  *      if not enough suitable targets exist).
  */
 export async function injectBugs(fix, options = {}) {
-  const { ratio = 2, severity = 3, scope = 'src/' } = options;
+  const { ratio = 2, severity = 3, scope = 'src/', language } = options;
 
-  // Resolve the fixed file to an absolute path so exclusion comparisons are reliable
   const fixedFileAbs = fix.file ? path.resolve(process.cwd(), fix.file) : null;
 
-  // Resolve scope directory
-  const scopeAbs = path.resolve(process.cwd(), scope);
-  if (!fs.existsSync(scopeAbs)) {
-    return []; // scope directory does not exist
-  }
+  // Detect language from the fixed file, or use explicit option, fallback to javascript
+  const detectedLanguage = language || (fixedFileAbs ? detectLanguage(fixedFileAbs) : null) || 'javascript';
 
-  // Load templates
-  let templates;
+  // Load the language adapter
+  let adapter;
   try {
-    templates = await getTemplates();
+    adapter = await getAdapter(detectedLanguage);
   } catch {
     return [];
   }
 
+  const templates = adapter.templates;
   if (!templates || templates.length === 0) return [];
 
-  // Collect candidate files (excludes the fixed file)
-  let candidateFiles = collectCandidateFiles(scopeAbs, fixedFileAbs ?? '');
+  const scopeAbs = path.resolve(process.cwd(), scope);
+  if (!fs.existsSync(scopeAbs)) return [];
 
-  // Fallback: if no other files exist, inject into the fixed file itself
-  // (targeting different locations within the same file)
+  let candidateFiles = collectCandidateFiles(scopeAbs, fixedFileAbs ?? '', adapter);
+
   if (candidateFiles.length === 0 && fixedFileAbs && fs.existsSync(fixedFileAbs)) {
     candidateFiles = [fixedFileAbs];
   }
 
   if (candidateFiles.length === 0) return [];
 
-  // Score and rank all injection points across all candidate files
   const ranked = selectInjectionPoints(
     candidateFiles,
     { ...fix, file: fixedFileAbs ?? fix.file ?? '' },
     { severity },
-    templates
+    templates,
+    adapter
   );
 
   if (ranked.length === 0) return [];
 
-  // Select the top `ratio` candidates, avoiding duplicate files when possible
   const selected = [];
   const usedFiles = new Set();
 
-  // First pass: prefer different files
   for (const candidate of ranked) {
     if (selected.length >= ratio) break;
     if (!usedFiles.has(candidate.file)) {
@@ -611,7 +543,6 @@ export async function injectBugs(fix, options = {}) {
     }
   }
 
-  // Second pass: fill remaining slots from any file if we don't have enough
   if (selected.length < ratio) {
     for (const candidate of ranked) {
       if (selected.length >= ratio) break;
@@ -621,15 +552,15 @@ export async function injectBugs(fix, options = {}) {
     }
   }
 
-  // Apply injections
   const results = [];
   for (const candidate of selected) {
     const result = applyInjection(
       candidate.file,
       candidate.template,
       candidate.injectionPoint,
-      candidate.ast,
-      candidate.originalCode
+      candidate.parsed,
+      candidate.originalCode,
+      adapter
     );
     if (result !== null) {
       results.push(result);

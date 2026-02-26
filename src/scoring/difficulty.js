@@ -18,6 +18,34 @@ const CATEGORY_BASELINES = {
   'null-deref':      2,
   'logic-inversion': 3,
   'resource-leak':   4,
+  // Python-specific
+  'none-deref':      2,
+  'indentation':     4,
+  // Go-specific
+  'nil-deref':       2,
+  'error-swallow':   3,
+  'goroutine-leak':  4,
+  'defer-trap':      3,
+  // JavaScript expanded — Tier 1
+  'negation-strip':           3,
+  'ternary-swap':             3,
+  'nullish-to-or':            4,
+  'foreach-return':           4,
+  'spread-order':             4,
+  'destructure-default-strip': 3,
+  // JavaScript expanded — Tier 2
+  'promise-all-settle':  4,
+  'catch-chain-strip':   3,
+  'wrong-constant':      4,
+  'array-sort-mutation': 4,
+  // JavaScript expanded — Tier 3 (security)
+  'csrf-token-skip':     5,
+  'path-traversal':      4,
+  'cors-wildcard':       3,
+  // JavaScript expanded — Tier 4 (backend)
+  'connection-pool-leak':  4,
+  'stream-error-missing':  3,
+  'http-timeout-strip':    3,
 };
 
 /**

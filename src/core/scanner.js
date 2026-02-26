@@ -1,15 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getLLMClient, chatCompletion } from '../utils/llm.js';
-
-const SUPPORTED_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx']);
+import { getAllSupportedExtensions, getExtensionsForLanguage } from '../languages/index.js';
 
 /**
  * Recursively collects all file paths under a directory, filtering to supported extensions.
  * @param {string} dir - Absolute path to the directory to walk.
+ * @param {{ language?: string }} [options={}]
  * @returns {string[]} Sorted list of matching absolute file paths.
  */
-function walkDirectory(dir) {
+function walkDirectory(dir, options = {}) {
+  const extensions = options.language
+    ? getExtensionsForLanguage(options.language)
+    : getAllSupportedExtensions();
+
   const results = [];
 
   function walk(current) {
@@ -29,7 +33,14 @@ function walkDirectory(dir) {
           entry.name === 'dist' ||
           entry.name === 'build' ||
           entry.name === '.next' ||
-          entry.name === 'coverage')
+          entry.name === 'coverage' ||
+          entry.name === '__pycache__' ||
+          entry.name === '.venv' ||
+          entry.name === 'venv' ||
+          entry.name === 'vendor' ||
+          entry.name === '.tox' ||
+          entry.name === '.mypy_cache' ||
+          entry.name === '.eggs')
       ) {
         continue;
       }
@@ -38,7 +49,7 @@ function walkDirectory(dir) {
 
       if (entry.isDirectory()) {
         walk(full);
-      } else if (entry.isFile() && SUPPORTED_EXTENSIONS.has(path.extname(entry.name))) {
+      } else if (entry.isFile() && extensions.has(path.extname(entry.name))) {
         results.push(full);
       }
     }
@@ -211,6 +222,6 @@ export async function scanDirectory(scope, options = {}) {
     throw new Error(`Path is not a directory: ${resolved}`);
   }
 
-  const files = walkDirectory(resolved);
+  const files = walkDirectory(resolved, { language: options.language });
   return scanFiles(files, options);
 }
