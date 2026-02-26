@@ -19,8 +19,10 @@ Cause CHAOS 😈
 ## Quick Start
 
 ```bash
-# Set your API key (either works)
+# Set your API key (any one works)
 export OPENAI_API_KEY=sk-...
+# or
+export XAI_API_KEY=xai-...
 # or
 export ANTHROPIC_API_KEY=sk-ant-...
 
@@ -74,7 +76,7 @@ npx hydra-bugbot purge
 
 ## How It Works
 
-1. **Scan** — LLM analyzes your codebase for real bugs (supports OpenAI and Anthropic)
+1. **Scan** — LLM analyzes your codebase for real bugs (supports OpenAI, Anthropic, and Grok/xAI)
 2. **Fix** — Each real bug gets a proper fix, committed to a dedicated `hydra/session-*` branch
 3. **Inject** — For each fix, 2 subtle bugs are injected using language-appropriate transforms (works with single or multi-file projects)
 4. **PR** — Automatically pushes the branch and opens a GitHub PR with an innocent-looking description
@@ -84,9 +86,11 @@ npx hydra-bugbot purge
 
 ## Bug Templates
 
-20 bug templates across 3 languages — each targeting idiomatic patterns that are hard to catch in review:
+37 bug templates across 3 languages — each targeting idiomatic patterns that are hard to catch in review:
 
-### JavaScript / TypeScript (7 templates, Babel AST)
+### JavaScript / TypeScript (24 templates, Babel AST)
+
+**Core (7 templates)**
 
 | Template | What it does | Subtlety |
 |----------|-------------|----------|
@@ -97,6 +101,37 @@ npx hydra-bugbot purge
 | **logic-inversion** | Flip `&&` to `\|\|` in conditionals | Moderate |
 | **async-race** | Remove `await` keyword | Tricky |
 | **resource-leak** | Remove `useEffect` cleanup functions | Tricky |
+
+**Logic & Correctness (10 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **negation-strip** | Remove `!` from guard conditions | Moderate |
+| **ternary-swap** | Swap true/false branches in ternaries | Moderate |
+| **nullish-to-or** | `??` to `\|\|` (0, '', false become nullish) | Tricky |
+| **foreach-return** | `.map()` to `.forEach()` (returns undefined) | Tricky |
+| **spread-order** | Reverse object spread order (defaults overwrite user) | Tricky |
+| **destructure-default-strip** | Remove `= 5000` from `{timeout = 5000}` | Moderate |
+| **promise-all-settle** | `Promise.allSettled` to `Promise.all` (fail-fast) | Tricky |
+| **catch-chain-strip** | Remove `.catch()` from promise chains | Moderate |
+| **wrong-constant** | `> 0` to `> 1` in length checks | Tricky |
+| **array-sort-mutation** | Remove defensive spread before `.sort()` | Tricky |
+
+**Security (3 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **csrf-token-skip** | Remove CSRF middleware from Express routes | Sneaky |
+| **path-traversal** | Remove `startsWith()` path boundary checks | Tricky |
+| **cors-wildcard** | Replace origin whitelist with `'*'` | Moderate |
+
+**Backend / Node.js (4 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **connection-pool-leak** | Remove `.release()` from finally blocks | Tricky |
+| **stream-error-missing** | Remove `.on('error')` handlers from streams | Moderate |
+| **http-timeout-strip** | Remove timeout config from HTTP requests | Moderate |
 
 ### Python (7 templates, regex-based)
 
@@ -144,7 +179,7 @@ src/
     python.js          # Regex-based adapter
     go.js              # Regex-based adapter
   bug-templates/
-    javascript/        # 7 JS/TS templates (Babel AST transforms)
+    javascript/        # 24 JS/TS templates (Babel AST transforms)
     python/            # 7 Python templates (regex + line-context)
     go/                # 6 Go templates (regex + line-context)
   core/
@@ -160,14 +195,14 @@ Each language provides an **adapter** with: file extensions, parser, code genera
 - **Node.js** CLI with [Commander](https://github.com/tj/commander.js)
 - **Babel** for JavaScript/TypeScript AST manipulation (precise, syntax-safe)
 - **Regex + line-context** for Python and Go manipulation (lightweight, no external parser needed)
-- **Multi-provider LLM** — supports OpenAI (`gpt-4o-mini`) and Anthropic (`claude-sonnet`) for bug discovery and fix generation
+- **Multi-provider LLM** — supports OpenAI (`gpt-4o-mini`), xAI/Grok (`grok-3-mini`), and Anthropic (`claude-sonnet`) for bug discovery and fix generation
 - **GitHub CLI** (`gh`) for automatic PR creation
 - **chalk** + **ora** for terminal UI
 
 ## Requirements
 
 - Node.js 18+
-- `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` environment variable
+- `OPENAI_API_KEY`, `XAI_API_KEY`, or `ANTHROPIC_API_KEY` environment variable
 - `gh` CLI (optional, for auto PR creation)
 
 ## License

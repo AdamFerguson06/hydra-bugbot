@@ -23,7 +23,7 @@ export default {
       TryStatement(path) {
         if (!path.node.finalizer) return;
 
-        const finallyBody = path.node.finalizer.body.body;
+        const finallyBody = path.node.finalizer.body;
 
         let cleanupIdx = -1;
         let cleanupMethod = null;
@@ -70,7 +70,7 @@ export default {
         if (path.node !== injectionPoint.node) return;
 
         // Remove the cleanup call from the finally block — connections now leak
-        path.node.finalizer.body.body.splice(injectionPoint.cleanupIdx, 1);
+        path.node.finalizer.body.splice(injectionPoint.cleanupIdx, 1);
 
         path.stop();
       },
