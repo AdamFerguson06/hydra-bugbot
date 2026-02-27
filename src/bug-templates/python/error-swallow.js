@@ -1,85 +1,125 @@
 /**
- * error-swallow.js — Python overly-broad exception handler bug template
+ * error-swallow.js — Python error-swallowing bug template
  *
- * Strategy: Python's exception handling is precise by design. Writing
- * `except ValueError:` or `except (TypeError, KeyError):` catches only the
- * named exceptions and lets everything else propagate. This allows
- * KeyboardInterrupt, SystemExit, GeneratorExit, and programmer errors like
- * NameError to surface correctly.
+ * Strategy: Python's except handlers typically contain meaningful recovery
+ * logic — logging, re-raising, cleanup, or returning an error value. This
+ * template replaces the handler body with a bare `pass`, silently discarding
+ * the exception. The except clause still catches the named type, but the
+ * application silently continues as if nothing happened.
  *
- * This template replaces specific exception types with `Exception`:
+ * This is distinct from exception-broad-catch (which widens WHAT is caught)
+ * — error-swallow changes HOW a caught exception is handled: by doing nothing.
  *
- *   except ValueError:           →  except Exception:
- *   except (TypeError, KeyError): →  except Exception:  (first name only)
+ * Targets:
+ *   except ValueError as e:     →  except ValueError as e:
+ *       logger.error(e)                 pass
+ *       raise
  *
- * `Exception` is the base class of almost all built-in exceptions, including
- * ones that should never be silently caught:
- *   - KeyboardInterrupt (Ctrl-C handling)
- *   - SystemExit (sys.exit() calls)
- *   - MemoryError, RecursionError, ...
+ *   except IOError:             →  except IOError:
+ *       cleanup()                       pass
+ *       return None
  *
- * In practice this causes two problems:
- *   1. Signals and shutdown sequences are swallowed, making processes
- *      unkillable or uncleanly terminating.
- *   2. Programming errors (NameError, AttributeError) are caught and hidden,
- *      turning hard crashes into silent misbehaviour.
- *
- * The change looks like a harmless broadening ("catch more errors") but is a
- * well-known Python anti-pattern. It survives review because reviewers often
- * mentally parse `except Exception:` as "catch all exceptions" without
- * considering the implications.
- *
- * Pattern groups (applied to the matched line):
- *   $1 — leading whitespace (indent level preserved)
- *   $2 — original exception type(s) (discarded in favour of Exception)
- *   $3 — remainder of the line after the colon, e.g., '  # handle error' (preserved)
- *
- * Only the first word-token of the exception spec is captured; tuple forms like
- * `except (A, B):` are matched by the same pattern via `/^(\s*)except\s+(\w+)/`
- * and still collapsed to `except Exception:`.
+ * The template finds except blocks whose body contains at least one
+ * non-pass statement, then replaces the entire body with `pass`.
  */
 
-import { findMatchingLines, replaceLine } from '../../utils/regex-parser.js';
+import { findMatchingLines, removeLine, getIndent } from '../../utils/regex-parser.js';
 
-// Matches except clauses with a named exception type.
-// Excludes bare `except:` and `except Exception:` (already as broad as we want).
-// Capture groups:
-//   1 — leading whitespace
-//   2 — first token of the exception spec (e.g., ValueError, or the opening paren)
-//   3 — everything after the colon on the same line (inline comment, etc.)
-//
-// We use a negative lookahead to skip lines that already say `except Exception`
-// so the template is idempotent — injecting twice produces the same result.
-// The character class [\w(] at the start of group 2 handles both the plain form
-// `except ValueError:` and the tuple form `except (TypeError, KeyError):`.
-const EXCEPT_PATTERN = /^(\s*)except\s+(?!Exception\b)([\w(][\w.,\s()]*?)(\s*:.*)$/;
+// Matches any except line (with or without type, with or without `as`).
+// We require a named type to avoid matching bare `except:` which is already
+// a known anti-pattern and would be too obvious.
+const EXCEPT_LINE_PATTERN = /^(\s*)except\s+\(?\w[\w.,\s()]*\)?(?:\s+as\s+\w+)?\s*:/;
 
 export default {
   name: 'error-swallow',
   category: 'error-handling',
   description:
-    "Broadens 'except SomeError:' to 'except Exception:' — catches KeyboardInterrupt, SystemExit, and hides programming errors",
+    "Replaces except handler body with 'pass', silently swallowing caught exceptions instead of handling them",
 
   findInjectionPoints(parsed, filename) {
-    return findMatchingLines(parsed, EXCEPT_PATTERN, filename);
+    const candidates = findMatchingLines(parsed, EXCEPT_LINE_PATTERN, filename);
+    const points = [];
+
+    for (const candidate of candidates) {
+      const { lineIndex } = candidate;
+      const exceptIndent = getIndent(parsed.lines[lineIndex]);
+
+      // Scan forward to find the except body lines.
+      // Body lines are those indented deeper than the except line.
+      const bodyLines = [];
+      for (let i = lineIndex + 1; i < parsed.lines.length; i++) {
+        const ln = parsed.lines[i];
+        // Blank line — only include if the next non-blank line is still
+        // deeper-indented (i.e., the blank is inside the body, not a
+        // separator between blocks or the trailing newline of the file).
+        if (ln.trim() === '') {
+          let peek = i + 1;
+          while (peek < parsed.lines.length && parsed.lines[peek].trim() === '') peek++;
+          if (peek < parsed.lines.length && getIndent(parsed.lines[peek]).length > exceptIndent.length) {
+            bodyLines.push(i);
+            continue;
+          }
+          break;
+        }
+        // If indented deeper than the except keyword, it's part of the body.
+        if (getIndent(ln).length > exceptIndent.length) {
+          bodyLines.push(i);
+        } else {
+          break;
+        }
+      }
+
+      // Skip if body is empty or already just `pass`.
+      if (bodyLines.length === 0) continue;
+      const nonBlankBody = bodyLines.filter((i) => parsed.lines[i].trim() !== '');
+
+      // Derive body indent from the first non-blank body line to respect
+      // the file's actual indentation style (tabs, 2-space, 4-space, etc.).
+      const bodyIndent = nonBlankBody.length > 0
+        ? getIndent(parsed.lines[nonBlankBody[0]])
+        : exceptIndent + '    ';
+      if (
+        nonBlankBody.length === 1 &&
+        parsed.lines[nonBlankBody[0]].trim() === 'pass'
+      ) {
+        continue;
+      }
+
+      // Must have at least one meaningful statement to replace.
+      if (nonBlankBody.length === 0) continue;
+
+      points.push({
+        ...candidate,
+        bodyLines,
+        bodyIndent,
+      });
+    }
+
+    return points;
   },
 
   inject(parsed, injectionPoint) {
-    const { lineIndex, line } = injectionPoint;
+    const { lineIndex, bodyLines, bodyIndent } = injectionPoint;
 
-    // Replace the specific exception type(s) with the bare Exception base class.
-    // Preserves indent and any inline content after the colon (e.g., comments).
-    const newLine = line.replace(
-      EXCEPT_PATTERN,
-      '$1except Exception$3'
-    );
+    // Remove all body lines (in reverse order to preserve indices).
+    let result = parsed;
+    for (let i = bodyLines.length - 1; i >= 0; i--) {
+      result = removeLine(result, bodyLines[i]);
+    }
 
-    return replaceLine(parsed, lineIndex, newLine);
+    // Insert `pass` as the new body right after the except line.
+    // After removals, the except line is still at lineIndex.
+    // Use replaceLine on itself to get a fresh immutable copy with the
+    // spliced line inserted, keeping .source in sync with .lines.
+    const newLines = [...result.lines];
+    newLines.splice(lineIndex + 1, 0, bodyIndent + 'pass');
+    result = { lines: newLines, source: newLines.join('\n') };
+
+    return result;
   },
 
   describe(injectionPoint) {
-    const m = injectionPoint.line.match(EXCEPT_PATTERN);
-    const original = m ? m[2].trim() : 'SomeError';
-    return `Broadened 'except ${original}:' to 'except Exception:' — now catches KeyboardInterrupt, SystemExit, and masks programmer errors`;
+    const bodyCount = injectionPoint.bodyLines.length;
+    return `Replaced ${bodyCount}-line except handler body with 'pass' — exception is now silently swallowed`;
   },
 };

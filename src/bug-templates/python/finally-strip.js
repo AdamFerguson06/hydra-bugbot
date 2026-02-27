@@ -30,23 +30,11 @@
  * keeps all subsequent indices valid.
  */
 
-import { findMatchingLines, removeLine } from '../../utils/regex-parser.js';
+import { findMatchingLines, removeLine, getIndent } from '../../utils/regex-parser.js';
 
 // Matches: <indent>finally:
 // Captures group 1 = leading whitespace (used to measure block body depth).
 const FINALLY_PATTERN = /^(\s*)finally\s*:\s*$/;
-
-/**
- * Returns the length of leading whitespace for a line.
- * Works correctly for both space-indented and tab-indented files.
- *
- * @param {string} line
- * @returns {number}
- */
-function indentLength(line) {
-  const m = line.match(/^(\s*)/);
-  return m ? m[1].length : 0;
-}
 
 export default {
   name: 'finally-strip',
@@ -60,7 +48,7 @@ export default {
 
     for (const header of headers) {
       const { lineIndex, line } = header;
-      const headerIndent = indentLength(line);
+      const headerIndentLen = getIndent(line).length;
 
       // Collect body lines: everything after the header that is more indented.
       // We include blank lines that fall inside the block (they don't break
@@ -77,7 +65,7 @@ export default {
           while (peek < parsed.lines.length && !parsed.lines[peek].trim()) peek++;
           if (
             peek < parsed.lines.length &&
-            indentLength(parsed.lines[peek]) > headerIndent
+            getIndent(parsed.lines[peek]).length > headerIndentLen
           ) {
             bodyIndices.push(i);
             i++;
@@ -87,7 +75,7 @@ export default {
           break;
         }
 
-        if (indentLength(bodyLine) > headerIndent) {
+        if (getIndent(bodyLine).length > headerIndentLen) {
           bodyIndices.push(i);
           i++;
         } else {

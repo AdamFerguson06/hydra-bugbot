@@ -11,6 +11,7 @@
  *   findMatchingLines(parsed, pattern, filename, options) — locate lines matching a regex
  *   replaceLine(parsed, lineIndex, newLine)         — immutable line replacement
  *   removeLine(parsed, lineIndex)                   — immutable line removal
+ *   getIndent(line)                                 — extract leading whitespace from a line
  *   extractImportsByRegex(source, importPatterns)   — collect module/package names from imports
  */
 
@@ -206,4 +207,15 @@ export function extractImportsByRegex(source, importPatterns) {
   }
 
   return Array.from(found);
+}
+
+/**
+ * Returns the leading whitespace (indentation) of a line.
+ *
+ * @param {string} line - A single source line.
+ * @returns {string} The whitespace prefix (spaces, tabs, or empty string).
+ */
+export function getIndent(line) {
+  const m = line.match(/^(\s*)/);
+  return m ? m[1] : '';
 }
