@@ -57,10 +57,17 @@ export default {
       const bodyLines = [];
       for (let i = lineIndex + 1; i < parsed.lines.length; i++) {
         const ln = parsed.lines[i];
-        // Blank lines inside the body are part of it.
+        // Blank line — only include if the next non-blank line is still
+        // deeper-indented (i.e., the blank is inside the body, not a
+        // separator between blocks or the trailing newline of the file).
         if (ln.trim() === '') {
-          bodyLines.push(i);
-          continue;
+          let peek = i + 1;
+          while (peek < parsed.lines.length && parsed.lines[peek].trim() === '') peek++;
+          if (peek < parsed.lines.length && getIndent(parsed.lines[peek]).length > exceptIndent.length) {
+            bodyLines.push(i);
+            continue;
+          }
+          break;
         }
         // If indented deeper than the except keyword, it's part of the body.
         if (getIndent(ln).length > exceptIndent.length) {
