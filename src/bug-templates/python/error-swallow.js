@@ -51,7 +51,6 @@ export default {
     for (const candidate of candidates) {
       const { lineIndex } = candidate;
       const exceptIndent = getIndent(parsed.lines[lineIndex]);
-      const bodyIndent = exceptIndent + '    '; // Python standard 4-space indent
 
       // Scan forward to find the except body lines.
       // Body lines are those indented deeper than the except line.
@@ -74,6 +73,12 @@ export default {
       // Skip if body is empty or already just `pass`.
       if (bodyLines.length === 0) continue;
       const nonBlankBody = bodyLines.filter((i) => parsed.lines[i].trim() !== '');
+
+      // Derive body indent from the first non-blank body line to respect
+      // the file's actual indentation style (tabs, 2-space, 4-space, etc.).
+      const bodyIndent = nonBlankBody.length > 0
+        ? getIndent(parsed.lines[nonBlankBody[0]])
+        : exceptIndent + '    ';
       if (
         nonBlankBody.length === 1 &&
         parsed.lines[nonBlankBody[0]].trim() === 'pass'
