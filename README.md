@@ -86,7 +86,7 @@ npx hydra-bugbot purge
 
 ## Bug Templates
 
-37 bug templates across 3 languages — each targeting idiomatic patterns that are hard to catch in review:
+72 bug templates across 3 languages (24 per language) — each targeting idiomatic patterns that are hard to catch in review:
 
 ### JavaScript / TypeScript (24 templates, Babel AST)
 
@@ -133,7 +133,9 @@ npx hydra-bugbot purge
 | **stream-error-missing** | Remove `.on('error')` handlers from streams | Moderate |
 | **http-timeout-strip** | Remove timeout config from HTTP requests | Moderate |
 
-### Python (7 templates, regex-based)
+### Python (24 templates, regex-based)
+
+**Core (7 templates)**
 
 | Template | What it does | Subtlety |
 |----------|-------------|----------|
@@ -145,7 +147,51 @@ npx hydra-bugbot purge
 | **async-race** | Remove `await` from asyncio calls | Tricky |
 | **indentation** | Dedent last line of a block (scope change) | Tricky |
 
-### Go (6 templates, regex-based)
+**Logic & Correctness (6 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **negation-strip** | Remove `not` from `if not x:` guards | Moderate |
+| **ternary-swap** | Swap true/false in `x if cond else y` | Moderate |
+| **wrong-constant** | `> 0` to `> 1` in length checks | Tricky |
+| **default-mutable-arg** | `def f(x=None)` to `def f(x=[])` (shared mutable default) | Tricky |
+| **sorted-vs-sort** | `sorted(x)` to `x.sort()` (returns None) | Tricky |
+| **dict-merge-order** | Swap `{**defaults, **user}` to `{**user, **defaults}` | Tricky |
+
+**Error Handling (4 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **boolean-trap** | `== True` to `is True` (breaks truthy values) | Moderate |
+| **error-swallow** | `except ValueError:` to `except Exception:` | Moderate |
+| **exception-broad-catch** | Broaden specific except clauses | Moderate |
+| **finally-strip** | Remove `finally:` cleanup blocks | Moderate |
+
+**Async & Correctness (1 template)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **generator-exhaust** | Wrap lazy generator in `list()` (memory) | Tricky |
+
+**Security (3 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **string-format-injection** | Remove `html.escape()` / sanitization wrappers | Sneaky |
+| **path-traversal** | Remove `os.path.abspath()` sanitization | Tricky |
+| **cors-wildcard** | Replace CORS origin list with `'*'` | Moderate |
+
+**Backend (3 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **http-timeout-strip** | Remove `timeout=` from `requests.get()` | Moderate |
+| **connection-pool-close** | Remove `.close()` from DB connections | Tricky |
+| **stream-error-missing** | Broaden I/O exception handlers | Moderate |
+
+### Go (24 templates, regex-based)
+
+**Core (6 templates)**
 
 | Template | What it does | Subtlety |
 |----------|-------------|----------|
@@ -155,6 +201,54 @@ npx hydra-bugbot purge
 | **error-swallow** | Replace `err` with `_` in multi-return | Moderate |
 | **defer-trap** | Remove `defer` from cleanup calls | Moderate |
 | **goroutine-leak** | Comment out channel operations | Tricky |
+
+**Logic & Correctness (6 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **negation-strip** | Remove `!` from `if !ok {` guards | Moderate |
+| **wrong-constant** | `> 0` to `> 1` in `len()` checks | Tricky |
+| **shadow-variable** | `=` to `:=` in inner scope (shadow outer var) | Tricky |
+| **slice-append-overwrite** | Drop `x =` from `x = append(x, ...)` | Tricky |
+| **type-assertion-unchecked** | Remove comma-ok from type assertions (panics) | Tricky |
+| **range-value-copy** | Replace `&slice[i]` with `&v` (range var capture) | Sneaky |
+
+**Concurrency (4 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **mutex-unlock-strip** | Remove `mu.Unlock()` calls (deadlock) | Tricky |
+| **context-cancel-strip** | Remove `cancel()` after `context.WithCancel` | Tricky |
+| **channel-direction-strip** | `chan<- int` to `chan int` (remove direction) | Moderate |
+| **string-builder-reset** | Remove `.Reset()` in loops (state accumulates) | Moderate |
+
+**Error Handling (2 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **error-wrap-strip** | `%w` to `%v` in `fmt.Errorf` (breaks error chain) | Tricky |
+| **panic-recover-strip** | Comment out `recover()` calls (panics crash) | Moderate |
+
+**Data & Serialization (1 template)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **json-tag-strip** | Remove `json:"field"` struct tags | Moderate |
+
+**Security (3 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **path-traversal** | Remove `filepath.Clean()` sanitization | Tricky |
+| **cors-wildcard** | Replace CORS origin with `"*"` | Moderate |
+| **sql-injection** | Replace parameterized `$1` with `fmt.Sprintf` | Sneaky |
+
+**Backend (2 templates)**
+
+| Template | What it does | Subtlety |
+|----------|-------------|----------|
+| **http-timeout-strip** | Remove `Timeout:` from `http.Client{}` | Moderate |
+| **connection-close-strip** | Remove `defer db.Close()` / `defer rows.Close()` | Tricky |
 
 ## Git Workflow
 
@@ -180,8 +274,8 @@ src/
     go.js              # Regex-based adapter
   bug-templates/
     javascript/        # 24 JS/TS templates (Babel AST transforms)
-    python/            # 7 Python templates (regex + line-context)
-    go/                # 6 Go templates (regex + line-context)
+    python/            # 24 Python templates (regex + line-context)
+    go/                # 24 Go templates (regex + line-context)
   core/
     scanner.js         # LLM-powered bug discovery
     fixer.js           # LLM-powered bug fixing

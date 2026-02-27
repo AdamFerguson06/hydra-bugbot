@@ -103,7 +103,7 @@ export async function getPythonAdapter() {
 
     templates,
 
-    categories: ['async', 'logic', 'null-safety', 'resource', 'indentation'],
+    categories: ['async', 'logic', 'null-safety', 'resource', 'indentation', 'correctness', 'error-handling', 'security', 'database', 'event-loop'],
 
     /**
      * Directories to skip when scanning a Python project for injection targets.
