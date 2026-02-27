@@ -23,12 +23,12 @@
  * non-pass statement, then replaces the entire body with `pass`.
  */
 
-import { findMatchingLines, replaceLine, removeLine } from '../../utils/regex-parser.js';
+import { findMatchingLines, removeLine } from '../../utils/regex-parser.js';
 
 // Matches any except line (with or without type, with or without `as`).
 // We require a named type to avoid matching bare `except:` which is already
 // a known anti-pattern and would be too obvious.
-const EXCEPT_LINE_PATTERN = /^(\s*)except\s+\w[\w.,\s()]*(?:\s+as\s+\w+)?\s*:/;
+const EXCEPT_LINE_PATTERN = /^(\s*)except\s+\(?\w[\w.,\s()]*\)?(?:\s+as\s+\w+)?\s*:/;
 
 /**
  * Returns the indentation string of a line.
@@ -105,16 +105,17 @@ export default {
 
     // Insert `pass` as the new body right after the except line.
     // After removals, the except line is still at lineIndex.
-    const passLine = bodyIndent + 'pass';
-    result.lines.splice(lineIndex + 1, 0, passLine);
+    // Use replaceLine on itself to get a fresh immutable copy with the
+    // spliced line inserted, keeping .source in sync with .lines.
+    const newLines = [...result.lines];
+    newLines.splice(lineIndex + 1, 0, bodyIndent + 'pass');
+    result = { lines: newLines, source: newLines.join('\n') };
 
     return result;
   },
 
   describe(injectionPoint) {
-    const bodyCount = injectionPoint.bodyLines.filter(
-      (i) => injectionPoint.line && true // just count them
-    ).length;
+    const bodyCount = injectionPoint.bodyLines.length;
     return `Replaced ${bodyCount}-line except handler body with 'pass' — exception is now silently swallowed`;
   },
 };
