@@ -41,17 +41,15 @@
 import { findMatchingLines, replaceLine } from '../../utils/regex-parser.js';
 
 // Matches the two-value comma-ok type assertion form.
+// Specifically matches type assertion syntax `iface.(Type)` using a narrower
+// regex that requires the `.(` before the type name.
+//
 // Group 1 — leading whitespace
 // Group 2 — first (primary) variable name
 // Group 3 — second variable name (ok / err / etc.) — must NOT be `_`
 // Group 4 — assignment operator (:= or =)
 // Group 5 — interface expression (word chars, dots, brackets allowed)
 // Group 6 — asserted type (may include package qualifier: io.Reader)
-const COMMA_OK_ASSERTION_PATTERN =
-  /^(\s*)(\w+),\s*(\w+)\s*([:=]=?)\s*([\w.[\]]+)\.([\w.]+\w)\)/;
-
-// Tighter pattern: specifically match type assertion syntax `iface.(Type)`
-// using a narrower regex that requires the `.(`  before the type name.
 const TYPE_ASSERT_PATTERN =
   /^(\s*)(\w+),\s*([a-zA-Z]\w*)\s*(:?=)\s*([\w.[\]]+)\.\(([^)]+)\)/;
 
