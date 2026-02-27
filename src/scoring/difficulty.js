@@ -46,6 +46,30 @@ const CATEGORY_BASELINES = {
   'connection-pool-leak':  4,
   'stream-error-missing':  3,
   'http-timeout-strip':    3,
+  // Python expanded
+  'default-mutable-arg':   4,
+  'sorted-vs-sort':        4,
+  'dict-merge-order':      4,
+  'boolean-trap':          3,
+  'exception-broad-catch': 3,
+  'finally-strip':         3,
+  'generator-exhaust':     4,
+  'string-format-injection': 5,
+  'connection-pool-close': 4,
+  // Go expanded
+  'shadow-variable':       4,
+  'range-value-copy':      5,
+  'type-assertion-unchecked': 4,
+  'mutex-unlock-strip':    4,
+  'context-cancel-strip':  4,
+  'channel-direction-strip': 3,
+  'error-wrap-strip':      4,
+  'panic-recover-strip':   3,
+  'json-tag-strip':        3,
+  'slice-append-overwrite': 4,
+  'sql-injection':         5,
+  'connection-close-strip': 4,
+  'string-builder-reset':  3,
 };
 
 /**

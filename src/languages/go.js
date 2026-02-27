@@ -134,7 +134,7 @@ export async function getGoAdapter() {
     templates: templates.filter(Boolean),
 
     /** Bug categories covered by the Go template set. */
-    categories: ['logic', 'null-safety', 'concurrency', 'error-handling', 'resource'],
+    categories: ['logic', 'null-safety', 'concurrency', 'error-handling', 'resource', 'correctness', 'security', 'database', 'serialization'],
 
     /** Directory names to skip when walking the file tree. */
     skipDirs: new Set(['vendor', '.cache']),

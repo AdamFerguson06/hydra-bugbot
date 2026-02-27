@@ -141,6 +141,8 @@ function categoryFitScore(template, fix, language) {
       return /database|db|sql|query|pool|connection|client|pg|mysql|mongo/.test(context) ? 0.9 : 0.2;
     case 'event-loop':
       return /stream|pipe|socket|event|emitter/.test(context) ? 0.8 : 0.2;
+    case 'serialization':
+      return /json|marshal|unmarshal|serialize|encode|decode|struct|tag/.test(context) ? 0.8 : 0.2;
     default:
       return 0.3;
   }
@@ -168,6 +170,7 @@ function severityMatchScore(template, requestedSeverity) {
     security: 5,
     database: 4,
     'event-loop': 3,
+    serialization: 3,
   };
   const templateSeverity = CATEGORY_SEVERITY[template.category] ?? 3;
   const distance = Math.abs(templateSeverity - requestedSeverity);
@@ -438,6 +441,7 @@ export function applyInjection(file, template, injectionPoint, parsed, originalC
     security: 5,
     database: 4,
     'event-loop': 3,
+    serialization: 3,
   };
   const severity = CATEGORY_SEVERITY[template.category] ?? 3;
 
