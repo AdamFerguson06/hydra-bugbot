@@ -21,7 +21,7 @@
  * while the last statement silently escapes.
  */
 
-import { replaceLine } from '../../utils/regex-parser.js';
+import { replaceLine, getIndent } from '../../utils/regex-parser.js';
 
 // Block-opening keywords — lines ending with `:` under these starters are targets
 const BLOCK_OPENER_PATTERN = /^\s*(?:if|elif|else|for|while|def|class|with|try|except|finally)\b.*:\s*$/;
@@ -38,16 +38,6 @@ function detectIndentUnit(lines) {
     if (line.startsWith('\t')) return '\t';
   }
   return '    '; // default: 4 spaces
-}
-
-/**
- * Returns the leading whitespace of a line.
- * @param {string} line
- * @returns {string}
- */
-function getIndent(line) {
-  const m = line.match(/^(\s*)/);
-  return m ? m[1] : '';
 }
 
 /**

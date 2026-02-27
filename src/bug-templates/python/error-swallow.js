@@ -23,20 +23,12 @@
  * non-pass statement, then replaces the entire body with `pass`.
  */
 
-import { findMatchingLines, removeLine } from '../../utils/regex-parser.js';
+import { findMatchingLines, removeLine, getIndent } from '../../utils/regex-parser.js';
 
 // Matches any except line (with or without type, with or without `as`).
 // We require a named type to avoid matching bare `except:` which is already
 // a known anti-pattern and would be too obvious.
 const EXCEPT_LINE_PATTERN = /^(\s*)except\s+\(?\w[\w.,\s()]*\)?(?:\s+as\s+\w+)?\s*:/;
-
-/**
- * Returns the indentation string of a line.
- */
-function getIndent(line) {
-  const m = line.match(/^(\s*)/);
-  return m ? m[1] : '';
-}
 
 export default {
   name: 'error-swallow',
